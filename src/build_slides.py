@@ -31,6 +31,120 @@ H = Inches(7.5)
 MARGIN = Inches(0.72)
 
 
+# the report charts are drawn on a light surface. a stage screen needs the dark
+# version, with labels big enough to read from the back of the hall.
+CHART_BG = "#1a1a19"
+CHART_INK = "#ffffff"
+CHART_MUTED = "#c3c2b7"
+CHART_GRID = "#33332f"
+
+
+def _dark_axes(ax, fig):
+    fig.patch.set_facecolor(CHART_BG)
+    ax.set_facecolor(CHART_BG)
+    ax.grid(color=CHART_GRID, lw=1)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#4a4a46")
+    ax.tick_params(colors=CHART_MUTED, labelsize=13, length=0)
+
+
+def chart_tradeoff(path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    t = pd.read_csv(RESULTS / "privacy_utility_tradeoff.csv")
+    order = ["Non-private (overfit)", "Non-private (tuned)",
+             "DP eps=8", "DP eps=3", "DP eps=1", "DP eps=0.5"]
+    t = t.set_index("target").loc[order].reset_index()
+    labels = ["No care", "Careful", "DP 8", "DP 3", "DP 1", "DP 0.5"]
+    x = range(len(t))
+
+    fig, ax = plt.subplots(figsize=(7.6, 4.5))
+    _dark_axes(ax, fig)
+
+    ax.errorbar(x, t["target_test_auc_mean"], yerr=t["target_test_auc_std"],
+                color="#3987e5", lw=3.2, marker="s", ms=11, mec=CHART_BG, mew=2,
+                capsize=5, label="Accuracy of the model")
+    ax.errorbar(x, t["attack_auc_mean"], yerr=t["attack_auc_std"],
+                color="#d95926", lw=3.2, marker="o", ms=11, mec=CHART_BG, mew=2,
+                capsize=5, label="Success of the attack")
+
+    ax.axhline(0.5, color="#6f6e68", lw=1.6, ls=":")
+    ax.text(len(t) - 0.45, 0.512, "attacker learns nothing", ha="right",
+            fontsize=12, color="#8a8980")
+
+    ax.annotate("", xy=(1, 0.516), xytext=(0, 0.578),
+                arrowprops=dict(arrowstyle="-|>", color="#199e70", lw=2.6))
+    ax.text(0.52, 0.60, "the leak\ncollapses", fontsize=13, color="#199e70",
+            fontweight="bold", ha="center")
+
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, fontsize=13, color=CHART_INK)
+    ax.set_ylim(0.44, 0.83)
+    ax.set_ylabel("score", fontsize=13, color=CHART_MUTED)
+    ax.legend(frameon=False, fontsize=13, loc="upper right",
+              labelcolor=CHART_MUTED, handlelength=1.6)
+    fig.tight_layout(pad=0.6)
+    fig.savefig(path, dpi=200, facecolor=CHART_BG)
+    plt.close(fig)
+
+
+def chart_subgroups(path):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    g = pd.read_csv(RESULTS / "subgroup_vulnerability.csv")
+    g = g[g["target"] == "Non-private (overfit)"]
+    g = g[g["dimension"].isin(["comorbidities", "age"])]
+    pretty = {"comorbidities": "conditions", "age": "age"}
+    g = g.assign(label=[f"{pretty[d]} {v}" for d, v in zip(g["dimension"], g["group"])])
+    g = g.sort_values("attack_auc_mean")
+
+    colours = ["#d95926" if v >= 0.65 else "#5b5a55" for v in g["attack_auc_mean"]]
+    y = np.arange(len(g))
+
+    fig, ax = plt.subplots(figsize=(6.4, 4.5))
+    _dark_axes(ax, fig)
+    ax.barh(y, g["attack_auc_mean"] - 0.5, left=0.5, color=colours, height=0.66)
+    ax.axvline(0.5, color="#6f6e68", lw=1.6, ls=":")
+    ax.set_yticks(y)
+    ax.set_yticklabels(g["label"], fontsize=13, color=CHART_INK)
+    ax.set_xlim(0.5, 0.78)
+    ax.set_xticks([0.5, 0.6, 0.7])
+    ax.set_xlabel("how easily the attack finds them", fontsize=13, color=CHART_MUTED)
+    ax.grid(axis="y", visible=False)
+
+    for index, value in enumerate(g["attack_auc_mean"]):
+        ax.text(value + 0.006, index, f"{value:.2f}", va="center", fontsize=12,
+                color=CHART_INK if value >= 0.65 else CHART_MUTED,
+                fontweight="bold" if value >= 0.65 else "normal")
+
+    fig.tight_layout(pad=0.6)
+    fig.savefig(path, dpi=200, facecolor=CHART_BG)
+    plt.close(fig)
+
+
+def picture(slide, path, left, top, width, height):
+    """drop an image in, keeping its aspect ratio inside the given box."""
+    from PIL import Image
+
+    with Image.open(path) as image:
+        ratio = image.width / image.height
+    if width / height > ratio:
+        draw_h, draw_w = height, Emu(int(height * ratio))
+    else:
+        draw_w, draw_h = width, Emu(int(width / ratio))
+    return slide.shapes.add_picture(
+        str(path), left + Emu(int((width - draw_w) / 2)),
+        top + Emu(int((height - draw_h) / 2)), draw_w, draw_h)
+
+
 def load():
     t = pd.read_csv(RESULTS / "privacy_utility_tradeoff.csv").set_index("target")
     r = pd.read_csv(RESULTS / "mia_results.csv")
@@ -189,36 +303,42 @@ def slide_objective(prs, data):
     slide = blank(prs)
     background(slide)
     eyebrow(slide, "THE PROBLEM")
-    headline(slide, "Two hospitals. One model. Zero shared records.")
+    headline(slide, "The law moves the model, not the data.\nWe assumed that was safe.", size=36)
 
-    card_w = Inches(3.83)
-    gap = Inches(0.25)
-    top = Inches(2.15)
-    height = Inches(2.55)
+    top = Inches(2.35)
+    height = Inches(3.35)
+    left_w = Inches(5.1)
+    right_w = W - 2 * MARGIN - left_w - Inches(0.3)
 
-    for index, (title, lines, accent) in enumerate([
-        ("The data cannot travel",
-         ["Federal Law No. 2 of 2019.",
-          "UAE health data must not leave the State.",
-          "Pooling the records is not an option."], BLUE),
-        ("Names are not enough",
-         ["PDPL Art. 20 asks for pseudonymisation.",
-          "It hides the name in the row.",
-          "It does not hide the patient in the model."], ORANGE),
-        ("Presence is the breach",
-         ["A model that remembers a patient reveals them.",
-          "It shows that the person was in that hospital, in that period.",
-          "The diagnosis is not needed."], VIOLET),
-    ]):
-        bullet_card(slide, MARGIN + index * (card_w + gap), top, card_w, height,
-                    title, lines, accent)
+    bullet_card(slide, MARGIN, top, left_w, Inches(1.58),
+                "The records cannot travel",
+                ["Federal Law No. 2 of 2019. UAE health data must not leave the State.",
+                 "So we send the trained model instead."], BLUE)
+    bullet_card(slide, MARGIN, top + Inches(1.77), left_w, Inches(1.58),
+                "The names are already gone",
+                ["PDPL Art. 20 asks for pseudonymisation.",
+                 "No name, no address, no file number ever leaves the hospital."], ORANGE)
 
-    box(slide, MARGIN, Inches(5.1), W - 2 * MARGIN, Inches(1.15))
-    text(slide, MARGIN + Inches(0.34), Inches(5.42), W - 2 * MARGIN - Inches(0.68),
-         Inches(0.8),
-         [("Our job was not to claim this gap exists. It was to measure it.",
-           20, INK, True)])
-    footer(slide, "Every measured result in this deck is the mean of three independent runs.")
+    right = MARGIN + left_w + Inches(0.3)
+    box(slide, right, top, right_w, height)
+    bar = box(slide, right, top, Inches(0.05), height, fill=VIOLET)
+    bar.line.fill.background()
+    pad = Inches(0.34)
+    text(slide, right + pad, top + Inches(0.34), right_w - 2 * pad, Inches(0.4),
+         [("So we asked one question", 15, VIOLET, True)])
+    text(slide, right + pad, top + Inches(0.84), right_w - 2 * pad, Inches(1.5),
+         [("Can an outsider tell whether YOUR record was used to train this model?",
+           27, INK, True)], spacing=1.06)
+    text(slide, right + pad, top + Inches(2.35), right_w - 2 * pad, Inches(0.9),
+         [("If the answer is yes, the model has disclosed that you were a patient at "
+           "that hospital, in that period. No diagnosis required.", 14, MUTED, False)],
+         spacing=1.12)
+
+    box(slide, MARGIN, Inches(6.0), W - 2 * MARGIN, Inches(0.82))
+    text(slide, MARGIN + Inches(0.34), Inches(6.19), W - 2 * MARGIN - Inches(0.68),
+         Inches(0.55),
+         [("Our job was not to claim that this gap exists. It was to measure it.",
+           19, INK, True)])
 
 
 def slide_solution(prs, data):
@@ -245,7 +365,7 @@ def slide_solution(prs, data):
              Inches(0.5), [(subtitle, 12.5, MUTED, False)], spacing=1.1)
 
     node(left, "Hospital A",
-         "3,000 patients. Trains locally, then adds the noise.", BLUE)
+         "3,000 patients. Trains locally, with noise at every step.", BLUE)
     text(slide, left + node_w, top + Inches(0.42), arrow_w, Inches(0.5),
          [("⇄", 26, FAINT, False)], align=PP_ALIGN.CENTER)
     node(left + node_w + arrow_w, "Aggregation server",
@@ -253,7 +373,7 @@ def slide_solution(prs, data):
     text(slide, left + 2 * node_w + arrow_w, top + Inches(0.42), arrow_w, Inches(0.5),
          [("⇄", 26, FAINT, False)], align=PP_ALIGN.CENTER)
     node(left + 2 * (node_w + arrow_w), "Hospital B",
-         "3,000 patients. Trains locally, then adds the noise.", BLUE)
+         "3,000 patients. Trains locally, with noise at every step.", BLUE)
 
     text(slide, MARGIN, top + Inches(1.42), W - 2 * MARGIN, Inches(0.3),
          [("Eight rounds. The protected update goes up, the averaged model comes "
@@ -266,7 +386,7 @@ def slide_solution(prs, data):
     ctop = Inches(3.75)
     for index, (title, lines, accent) in enumerate([
         ("The server is not trusted",
-         ["Noise is added inside the hospital.",
+         ["Noise goes into every training step, inside the hospital.",
           "A stolen server learns no more than the epsilon bound allows."], GREEN),
         ("The budget does not add up",
          ["No patient is at both hospitals.",
@@ -290,136 +410,129 @@ def slide_validation(prs, data):
     slide = blank(prs)
     background(slide)
     eyebrow(slide, "RED TEAM")
-    headline(slide, "We attacked our own model with seven attacks, including the state of the art.")
+    headline(slide, "We attacked ourselves. Who got hurt?")
 
     overfit = t.loc["Non-private (overfit)"]
     dp3 = t.loc["DP eps=3"]
     ov = r[r["target"] == "Non-private (overfit)"]
     lira = ov[ov["attack"] == "lira"].iloc[0]
     rival = ov[ov["attack"] != "lira"].sort_values("auc_mean", ascending=False).iloc[0]
-    shadows_total = 32 * n_seeds
 
-    # compare two groups on the same axis, so the numbers are directly comparable
-    comorbid = g[g["dimension"] == "comorbidities"].set_index("group")["attack_auc_mean"]
-    worst = float(comorbid["5+"])
-    mildest = float(comorbid["1-2"])
+    top = Inches(1.95)
+    chart_w = Inches(5.45)
+    picture(slide, OUT_DIR / "chart_subgroups.png", MARGIN, top, chart_w, Inches(3.9))
+    text(slide, MARGIN, top + Inches(3.95), chart_w, Inches(0.3),
+         [("Careless model. 0.5 means the attacker is guessing.", 11.5, FAINT, False)],
+         align=PP_ALIGN.CENTER)
 
-    top = Inches(2.1)
-    height = Inches(2.05)
-    gap_between = Inches(0.29)
-    half = Emu(int((W - 2 * MARGIN - gap_between) / 2))
+    right = MARGIN + chart_w + Inches(0.34)
+    right_w = W - MARGIN - right
 
-    stat_card(slide, MARGIN, top, half, height,
-              f'{overfit["attack_auc_mean"]:.3f}', ORANGE,
-              "Best of the seven attacks against the careless model. 0.5 means the "
-              "attacker learns nothing. Our audit proves a real leak at epsilon of "
-              f'{overfit["empirical_epsilon_mean"]:.2f}.')
-    stat_card(slide, MARGIN + half + gap_between, top, half, height,
-              f'{dp3["attack_auc_mean"]:.3f}', GREEN,
-              "Best of the same seven against the DP model. This is chance level, in "
-              f'every one of the {n_seeds} runs.')
-
-    ctop = Inches(4.45)
-    card_w = Inches(3.83)
-    gap = Inches(0.25)
-    for index, (title, lines, accent) in enumerate([
-        ("LiRA, not a simple threshold",
-         [f"{shadows_total} shadow models for each target.",
-          "It learns what a normal score looks like for every single patient."],
-         VIOLET),
-        ("The average score lies",
-         [f"At a 1% false alarm rate, LiRA finds "
-          f"{lira['tpr_01_mean'] / rival['tpr_01_mean']:.1f} times more patients "
-          "than the classic attack.",
-          "On the average score they look the same."], ORANGE),
-        ("The leak finds the most ill",
-         [f"Patients with 5 or more conditions score {worst:.2f}. "
-          f"Patients with one or two score {mildest:.2f}.",
-          "Only the calibrated attack can see this difference."], BLUE),
+    pair_h = Inches(1.52)
+    half = Emu(int((right_w - Inches(0.22)) / 2))
+    for index, (value, colour, caption) in enumerate([
+        (f'{overfit["attack_auc_mean"]:.3f}', ORANGE,
+         "against the careless model. Our audit certifies a real leak at epsilon "
+         f'{overfit["empirical_epsilon_mean"]:.2f}.'),
+        (f'{dp3["attack_auc_mean"]:.3f}', GREEN,
+         f'against the DP model. Chance level in all {n_seeds} runs, spread '
+         f'{dp3["attack_auc_std"]:.3f}.'),
     ]):
-        bullet_card(slide, MARGIN + index * (card_w + gap), ctop, card_w,
-                    Inches(2.15), title, lines, accent)
+        x = right + index * (half + Inches(0.22))
+        box(slide, x, top, half, pair_h)
+        text(slide, x + Inches(0.24), top + Inches(0.18), half - Inches(0.4),
+             Inches(0.55), [(value, 34, colour, True)])
+        text(slide, x + Inches(0.24), top + Inches(0.74), half - Inches(0.4),
+             Inches(0.7), [(caption, 11.5, MUTED, False)], spacing=1.08)
+
+    bullet_card(slide, right, top + pair_h + Inches(0.2), right_w, Inches(1.72),
+                "Seven attacks, including the state of the art",
+                [f"LiRA builds {32 * n_seeds} shadow models for each target, so it "
+                 "knows what a normal score looks like for every single patient.",
+                 f"At a 1% false alarm rate it finds "
+                 f"{lira['tpr_01_mean'] / rival['tpr_01_mean']:.1f} times more people "
+                 "than the classic attack."], VIOLET, body_size=12.5)
+
+    punch_top = top + pair_h + Inches(2.12)
+    box(slide, right, punch_top, right_w, Inches(1.14))
+    bar = box(slide, right, punch_top, Inches(0.05), Inches(1.14), fill=ORANGE)
+    bar.line.fill.background()
+    text(slide, right + Inches(0.3), punch_top + Inches(0.22), right_w - Inches(0.6),
+         Inches(0.8),
+         [("The attack is best at finding the patients with the most to lose.",
+           17, INK, True)], spacing=1.1)
 
     footer(slide, "LiRA: Carlini et al., IEEE Symposium on Security and Privacy, 2022. "
-                  f"Repeated across {n_seeds} independent runs.")
+                  f"Mean of {n_seeds} independent runs.")
 
 
 def slide_results(prs, data):
     t, r, g, base, dp, n_seeds, cohort = data
-    tuned_attacks = r[r["target"] == "Non-private (tuned)"]
-    tuned_lira = float(
-        tuned_attacks[tuned_attacks["attack"] == "lira"]["auc_mean"].iloc[0]
-    )
+    tuned_rows = r[r["target"] == "Non-private (tuned)"]
+    tuned_lira = float(tuned_rows[tuned_rows["attack"] == "lira"]["auc_mean"].iloc[0])
+    overfit, tuned, dp3 = (t.loc["Non-private (overfit)"], t.loc["Non-private (tuned)"],
+                           t.loc["DP eps=3"])
+    actual = float(dp.loc[3.0, "actual_epsilon"])
+
     slide = blank(prs)
     background(slide)
     eyebrow(slide, "RESULTS AND RECOMMENDATION")
     headline(slide, "A formal guarantee for 0.6% of the accuracy.")
 
+    top = Inches(1.95)
+    chart_w = Inches(6.35)
+    picture(slide, OUT_DIR / "chart_tradeoff.png", MARGIN, top, chart_w, Inches(3.85))
+    text(slide, MARGIN, top + Inches(3.9), chart_w, Inches(0.3),
+         [(f"Mean of {n_seeds} runs. The best score any model could reach is 0.784.",
+           11.5, FAINT, False)], align=PP_ALIGN.CENTER)
+
+    right = MARGIN + chart_w + Inches(0.34)
+    right_w = W - MARGIN - right
+
+    box(slide, right, top, right_w, Inches(1.26))
+    bar = box(slide, right, top, Inches(0.05), Inches(1.26), fill=GREEN)
+    bar.line.fill.background()
+    text(slide, right + Inches(0.28), top + Inches(0.18), right_w - Inches(0.56),
+         Inches(0.4), [("Ship epsilon 3", 19, INK, True)])
+    text(slide, right + Inches(0.28), top + Inches(0.6), right_w - Inches(0.56),
+         Inches(0.52),
+         [(f"epsilon {actual:.2f}, delta 0.00001, for each hospital. Accuracy "
+           f"{dp3['target_test_auc_mean']:.3f} against {tuned['target_test_auc_mean']:.3f} "
+           f"with no privacy at all.", 12.5, MUTED, False)], spacing=1.08)
+
     rows = [
-        ("Trained without care", "Non-private (overfit)", ORANGE, "none"),
-        ("Trained with care", "Non-private (tuned)", MUTED, "none"),
-        ("Federated + DP, epsilon 3", "DP eps=3", GREEN, "yes"),
+        ("Careless is not cheap", ORANGE,
+         f"The leaking model was also the worst, at "
+         f"{overfit['pct_of_bayes_ceiling']:.1%} of the best score."),
+        ("Care is not a guarantee", BLUE,
+         f"LiRA still scores {tuned_lira:.3f} on the careful model. Only DP reaches "
+         "chance."),
+        ("Scale makes privacy cheap", VIOLET,
+         "Three times the patients cut the cost from 2.5% to 0.6%."),
     ]
+    row_top = top + Inches(1.46)
+    row_h = Inches(0.86)
+    for index, (title, colour, body) in enumerate(rows):
+        y = row_top + index * (row_h + Inches(0.14))
+        box(slide, right, y, right_w, row_h)
+        bar = box(slide, right, y, Inches(0.05), row_h, fill=colour)
+        bar.line.fill.background()
+        text(slide, right + Inches(0.28), y + Inches(0.12), right_w - Inches(0.56),
+             Inches(0.3), [(title, 14.5, INK, True)])
+        text(slide, right + Inches(0.28), y + Inches(0.42), right_w - Inches(0.56),
+             Inches(0.4), [(body, 12, MUTED, False)], spacing=1.05)
 
-    table_top = Inches(2.0)
-    row_h = Inches(0.62)
-    col_x = [MARGIN, Inches(5.1), Inches(7.3), Inches(9.5), Inches(11.3)]
-    col_w = [Inches(4.2), Inches(2.0), Inches(2.0), Inches(1.7), Inches(1.3)]
-    headers = ["Model", "Accuracy", "Attack score", "Of the best", "Guarantee"]
-
-    for index, header in enumerate(headers):
-        text(slide, col_x[index], table_top, col_w[index], Inches(0.3),
-             [(header.upper(), 11, FAINT, True)])
-
-    for index, (label, key, colour, promise) in enumerate(rows):
-        row = t.loc[key]
-        y = table_top + Inches(0.42) + index * row_h
-        if key == "DP eps=3":
-            highlight = box(slide, MARGIN - Inches(0.16), y - Inches(0.1),
-                            W - 2 * MARGIN + Inches(0.32), row_h - Inches(0.06),
-                            fill=PANEL)
-            highlight.line.fill.background()
-        text(slide, col_x[0], y, col_w[0], Inches(0.4), [(label, 16, INK, True)])
-        text(slide, col_x[1], y, col_w[1], Inches(0.4),
-             [(f'{row["target_test_auc_mean"]:.3f}', 16, INK, False)])
-        text(slide, col_x[2], y, col_w[2], Inches(0.4),
-             [(f'{row["attack_auc_mean"]:.3f}', 16, colour, True)])
-        text(slide, col_x[3], y, col_w[3], Inches(0.4),
-             [(f'{row["pct_of_bayes_ceiling"]:.1%}', 16, MUTED, False)])
-        text(slide, col_x[4], y, col_w[4], Inches(0.4),
-             [(promise, 16, GREEN if promise == "yes" else FAINT, False)])
-
-    actual = float(dp.loc[3.0, "actual_epsilon"])
-    text(slide, MARGIN, Inches(4.24), W - 2 * MARGIN, Inches(0.35),
-         [(f"Budget we spend: epsilon {actual:.2f}, delta 0.00001, for each hospital. "
-           "0.5 on the attack score is chance level.", 13, FAINT, False)])
-
-    ctop = Inches(4.72)
-    card_w = Inches(3.83)
-    gap = Inches(0.25)
-    for index, (title, lines, accent) in enumerate([
-        ("Careless is not cheap",
-         ["The leaking model was also the least accurate model we built.",
-          "Privacy and accuracy fail together."], ORANGE),
-        ("Care is not a guarantee",
-         [f"LiRA still scores {tuned_lira:.3f} against the careful model, above "
-          "chance in all three runs.",
-          "Only DP reaches chance level."], BLUE),
-        ("Deploy epsilon 3",
-         ["98.3% of the best possible accuracy, attack held at chance level.",
-          "A guarantee that covers future attacks."], GREEN),
-    ]):
-        bullet_card(slide, MARGIN + index * (card_w + gap), ctop, card_w,
-                    Inches(1.9), title, lines, accent)
-
-    footer(slide, "The jury asked for scale and repeat runs. "
-                  f"We delivered {cohort:,} patients and {n_seeds} independent runs. "
-                  "One command reproduces every number.")
+    footer(slide, "The jury asked for scale and repeat runs. We delivered "
+                  f"{cohort:,} patients and {n_seeds} independent runs. "
+                  "We also report where we could not prove our own case.")
 
 
 def main():
     OUT_DIR.mkdir(exist_ok=True)
     data = load()
+
+    chart_tradeoff(OUT_DIR / "chart_tradeoff.png")
+    chart_subgroups(OUT_DIR / "chart_subgroups.png")
 
     prs = Presentation()
     prs.slide_width = W

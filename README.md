@@ -248,3 +248,13 @@ values. We take the average first, then rank.
 - Jagielski et al., *Auditing Differentially Private Machine Learning*, NeurIPS 2020
 - Kairouz et al., *The Composition Theorem for Differential Privacy*, ICML 2015
 - Abadi et al., *Deep Learning with Differential Privacy*, CCS 2016
+
+---
+
+## AI Disclosure
+
+We used Anthropic Claude and Google Gemini to write standard code, correct
+errors, keep the folder/file hierarchy hygiene and format presentation graphics.
+The primary security architecture and federated learning structure are our original work. 
+We independently made the decisions for the Differential Privacy budget (Epsilon 2.99) and the LiRA
+vulnerability analysis.
